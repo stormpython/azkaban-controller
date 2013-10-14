@@ -14,6 +14,8 @@ add_azkaban() {
 	echo "Adding the azkaban shell script to your ~/bin directory."
 	if [[ -e "$CURRENT_DIR/azkaban" ]]; then
 		cp azkaban ~/bin/
+		echo "Congratulations! You can start using azkaban-controller."
+		echo "Visit https://github.com/stormpython/azkaban-controller/blob/master/README.md for instructions."
 	else
 		echo "Please change into the directory with the azkaban shell 
 		script, or add the azkaban shell script to the current 
@@ -32,6 +34,7 @@ main() {
 	else
 		echo "Creating a ~/bin directory."
 		mkdir ~/bin
+		echo "~/bin directory created."
 		add_azkaban
 	fi
 
