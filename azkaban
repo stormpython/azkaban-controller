@@ -1,0 +1,466 @@
+#!/bin/bash 
+
+#########################################################################
+# Author: Shelby Sturgis
+# Date: 10-08-2013
+# Notes: This script creates new collections and workflows for
+# Azkaban jobs. 
+#########################################################################
+
+#########################################################################
+# COLLECTION
+# A collection is a group of workflows.  All collections which are
+# created with this script will have a .properties, .job, and a job.sh 
+# shell script (which passes dynamic parameters to each job in the child 
+# workflows). To create a collection directory, you run the following
+# command at the command line:
+#
+# 	$ azkaban create collection <directory_name> 
+#
+# where <directory_name> is the name of the collection directory.
+#
+# GLOBAL PROPERTIES FILE
+# The .properties file in the collection folder is a global properties
+# file which passes its parameters to all jobs in the workflow directories.
+# All .properties files have the following global parameters:
+#
+# 	mysql_db: name of the MySQL database
+#	mysql_server: address and port of the MySQL server
+#		e.g. mysql_server=crystaldb01.dev.nyc1.beats:3306
+#	hdfs_db:  name of the HDFS database
+#	mysql_user: MySQL username
+#	mysql_pswd: MySQL password
+#
+# .JOB FILE
+# The .job file in the collection folder is a Azkaban job file which
+# runs a bash command. The .job file runs the job.sh shell script, 
+# which passes the pre-defined dynamic variables to the workflow jobs. 
+#
+# JOB.SH FILE
+# The job.sh file in the bash file writes dynamic date parameters to
+# the JOB_OUTPUT_PROP_FILE within Azkaban. It is the only way in which
+# we are able to pass dynamic parameters, i.e. parameters that change
+# on every run. For more information, see
+# http://azkaban.github.io/azkaban2/documents/2.1/jobconf.html
+#
+# FLOW
+# A workflow is a collection of jobs which get executed.
+# All workflow directories which are created with this script will have
+# a flow.properties, hive.job, sqooop.job, and qa.job file. To create
+# a work "flow" folder, you run the following command at the command
+# line:
+#
+#	$ azkaban create flow <directory_name>
+#
+# where <directory_name> is the name of the workflow directory. 
+#
+# WORKFLOW DIRECTORIES ARE CREATED WITHIN A COLLECTION.
+# ALL MySQL AND HDFS DATABASE PARAMETERS NEEDED FOR JOBS IN THE WORKFLOW
+# DIRECTORY ARE INHERITED FROM THE GLOBAL PROPERTIES (CONTROLLER.PROPERTIES)
+# FILE LOCATED IN THE COLLECTION DIRECTORY.
+#
+# FLOW.PROPERTIES
+# The flow.properties file is a local properties file. Jobs within
+# the workflow folder inherit parameters from both the global and local
+# properties file. Local properties override global properties. 
+# The flow.properties file have the following local parameters:
+#
+#	mysql_qa_table: the MySQL QA table
+#	mysql_dest_table: the MySQL table to which HDFS data is sqooped
+#	hdfs_table: the HDFS table to which data is inserted
+#
+# HIVE.JOB
+# The hive.job file runs a HIVE query, which pulls data from the 
+# Supereventsfact table and inserts them into the appropriate HDFS table.
+# The HDFS table is defined in the flow.properties file as hdfs_table.
+#
+# SQOOP.JOB
+# The sqoop.job file runs a sqoop command which transfers data in the
+# HDFS table to the corresponding MySQL table. The HDFS and MySQL tables
+# are defined in the flow.properties file as hdfs_table and 
+# mysql_dest_table. 
+#
+# QA.JOB
+# The qa.job file is currently empty. The MySQL QA table is defined in
+# the flow.properties file as mysql_qa_table.
+#
+# These are simply suggestions for what files are needed within 
+# collection and flow directories. New files and directories may be
+# added and both collection and workflow directories can be customized 
+# to fit your needs.
+########################################################################
+
+# GLOBAL PARAMETERS.
+PARAM_1=$1 # should be "create".
+PARAM_2=$2 # should be either "collection" or "flow".
+PARAM_3=$3 # should consist of a name for a directory.
+CURRENT_PATH=$(pwd)
+AZKABAN_DIR=$CURRENT_PATH/$PARAM_3
+AZKABAN_SERVER="https://hdfs01.alpha.nyc1.beats:8444"
+
+# FUNCTIONS.
+# Create the collection directory.
+create_collection_dir() {
+	mkdir $AZKABAN_DIR
+
+	return
+}
+
+# Creates the collection files.
+create_collection_files() {
+	local final_job
+	final_job="final_"$PARAM_3"_job"
+
+	cd $AZKABAN_DIR
+
+	# Creates the controller.properties, controller.job, and job.sh
+	# files within the collection diretory.
+	touch controller.properties controller.job job.sh
+	mkdir $final_job
+
+	# controller.properties
+	cat > controller.properties <<- _EOF_
+		mysqldb=reporting
+		mysql_server=crystaldb01.dev.nyc1.beats:3306
+		hdfs_db=reporting_nyc
+		hdfs_db_loc=/user/hive/warehouse/reporting_nyc.db/
+		mysql_user=angel
+		mysql_pswd=@ng3L_1
+		email=
+		_EOF_
+
+	# controller.job
+	cat > controller.job <<- _EOF_
+		type=command
+		command=sh job.sh
+		_EOF_
+
+	# job.sh
+	cat > job.sh <<- _EOF_
+		#!/bin/bash
+
+		###############################################################
+		# This file is created to pass dynamic date time variables
+		# between Azkaban jobs. You can set the date and time 
+		# parameters using the date shell function. For example, to 
+		# set today's date with the following output '2013-09-30', 
+		# you'd write:
+		# 	today=\$(date +"%F")
+		# To set a timestamp, you'd write:
+		#	finish_ts=\$(date +"%s")
+		# By convention, we set today to the current date and finish_ts
+	        # set to the current timestamp. start_ts is set to yesterday's
+		# timestamp.
+		################################################################
+
+		# Date parameters
+		today=\$(date -u +"%F")
+		finish_ts=\$(date +%s --date="\$(date -u +"%F")")
+		start_ts=\$(date +%s --date="\$(date -u +"%F" --date "1 day ago")")
+
+		# Writing date parameters to temporary properties file.
+		# Passing properties in this way is only good for passing between two connected jobs
+		# and not for jobs further down the dependency chain.
+		# For example, if A -> B -> C, properties in C will only work in jobs in B.
+		echo '{ "date_part": "'\$today'", "start_ts": "'\$start_ts'", "finish_ts": "'\$finish_ts'"}' > JOB_OUTPUT_PROP_FILE
+		_EOF_
+	
+	# final_job directory.
+	# final_job.job
+	cat > $final_job/$final_job.job <<- _EOF_
+		type=command
+		dependencies=
+		command=
+		_EOF_
+
+	cat > $final_job/$final_job.properties <<- _EOF_
+		mysql_qa_table=qa_etl_hdfs
+		failure.emails=
+		_EOF_
+
+	return
+}
+
+# Creates the flow directory.
+create_flow_dir() {
+	mkdir $AZKABAN_DIR
+
+	return
+}
+
+# Creates the flow files.
+create_flow_files() {
+	# Local paramters.
+	local db_table
+	local hive
+	local sqoop
+	local qa
+
+	db_table=$PARAM_3
+	hive=$PARAM_3"_hive"
+	sqoop=$PARAM_3"_sqoop"
+	qa=$PARAM_3"_qa"
+
+	cd $AZKABAN_DIR
+
+	# Creates the controller.properties, controller.job, and job.sh
+	# files within the collection diretory.
+	touch $hive.job $sqoop.job $qa.job $db_table.properties
+
+	# hive.job
+	cat > $hive.job <<- _EOF_
+	type=command
+	dependencies=controller
+	command=sh ../job.sh
+	command.1=hive -e ' '
+	_EOF_
+
+	# sqoop.job
+	cat > $sqoop.job <<- _EOF_
+	type=command
+	dependencies=$hive
+	command=sh ../job.sh
+	command.1=sqoop export --connect jdbc:mysql://\${mysql_server}/\${mysql_db} --username \${mysql_user} --password \${mysql_pswd} --export-dir \${hdfs_db_loc} \${hdfs_table}/date_part=\${date_part} --table \${mysql_dest_table} --input-fields-terminated-by '\t' --input-null-string "\\\\\\\\\\N"
+	_EOF_
+
+	# qa.job
+	cat > $qa.job <<- _EOF_
+	type=command
+	dependencies=$sqoop
+	failure.email=\${email}
+	command=
+	_EOF_
+
+	# Local properties file.
+	cat > $db_table.properties <<- _EOF_
+	mysql_qa_table=qa_etl_hdfs
+	mysql_dest_table=$db_table
+	hdfs_table=$db_table
+	email=
+	_EOF_
+
+	echo "Workflow directory '$AZKABAN_DIR' created."
+	echo ""
+	echo "***** DO NOT FORGET TO ADD $qa.job TO THE final_<collection>_job.job DEPENDENCIES. *****"
+	echo ""
+
+	return
+}
+
+# Zips directory. 
+zip_file() {
+	if [[ -d "$CURRENT_PATH/$PARAM_3" ]]; then
+		if [[ -e "$CURRENT_PATH/$PARAM_3.zip" ]]; then
+			echo "Overwriting $CURRENT_PATH/$PARAM_3.zip file."
+			rm $CURRENT_PATH/$PARAM_3.zip
+		fi
+
+		echo "Zipping $CURRENT_PATH/$PARAM_3 directory."
+		zip -r $CURRENT_PATH/$PARAM_3.zip $CURRENT_PATH/$PARAM_3
+	else
+		echo "ERROR: The $CURRENT_PATH/$PARAM_3 directory does not exist."
+	fi
+
+	return
+}
+
+remove_zip_file() {
+	rm $PARAM_3.zip
+	echo "Zipped file $PARAM_3.zip removed."
+}
+
+# Returns the Azkaban session.id.
+get_session_id () {
+	# Instantiating local parameters.
+	local response
+	local status
+	local session_id
+
+	# Curl call to Azkaban that returns a session_id in json.
+	response=$(curl -k --data "action=login&username=azkaban&password=azkaban" $AZKABAN_SERVER)
+	# Returns the status in the json output status field.
+	status=$(echo $response | awk '{print $4}' | tr -d '",')
+
+	if [[ $status != "success" ]]; then
+		echo "ERROR: Cannot return session_id"
+		echo "$response"
+		exit 1
+	fi
+
+	session_id=$(echo $response | awk '{print $7}' | tr -d '"')
+	echo $session_id
+}
+
+upload_file() {
+	# Instantiating local parameters.
+	local project
+	local response
+	local session_id
+
+	# Azkaban project folder. 
+	# Should be the name of the collection folder.
+	project=$PARAM_3
+
+	# Check to make sure collection is in the current working directory.
+	if [[ -d $AZKABAN_DIR ]]; then
+		# Need to add zipped file function with a zip file name.
+		# Zipped file name is the 3rd parameter + .zip
+		# Currently hard coded in the curl call.
+		zip_file
+
+		# Retreives the session_id
+		echo "Retreiving session.id...."
+		session_id=$(get_session_id)
+		echo "session.id: $session_id"
+
+		# Uploads collection folder to Azkaban.
+		echo "Uploading file to Azkaban...."
+		response=$(curl -k -i -H "Content-Type: multipart/mixed" -X POST --form 'session.id='$session_id'' --form 'ajax=upload' --form 'file=@'$PARAM_3'.zip;type=application/zip' --form 'project='$project'' $AZKABAN_SERVER/manager)
+
+		if [[ $response == *error* ]]; then
+			echo "ERROR: Cannont upload file to Azkaban."
+			echo $response
+			remove_zip_file
+			exit 1
+		else
+			echo "Upload to Azkaban project $project successful!"
+			echo $response
+			remove_zip_file
+		fi
+	else
+		echo "The $PARAM_3 directory could not be found."
+		exit 1
+	fi
+
+		return
+}
+
+execute_uploaded_file() {
+	local email
+	local flow
+	local project
+	local response
+	local session_id
+	local status
+
+	# need to ask where failure emails should go, should default to team-analytics@beatsmusic.com
+	# The final job in every flow
+	email="ssturgis@beatsmusic.com"
+	project=$PARAM_3
+	flow="final_"$PARAM_3"_job"
+	session_id=$(get_session_id)
+
+	# Check to see if the collection is in the current directory.
+	if [[ -d $AZKABAN_DIR ]]; then
+		# run curl command that executes uploaded file
+		response=$(curl -k -i -X GET "$AZKABAN_SERVER/executor?session.id=$session_id&ajax=executeFlow&project=$project&flow=$flow&failureAction=finishPossible&failureEmailsOverride=true&failureEmails=$email")
+
+		if [[ $response == *error* ]]; then
+			echo "ERROR: Job could not be executed."
+			echo $response
+			exit 1
+		else
+			echo "Job is executing...."
+			echo $response
+		fi
+	else
+		echo "The $PARAM_3 directory could not be found."
+		exit 1
+	fi
+
+	return
+}
+
+# The main function.
+main() {
+	if [[ $PARAM_1 = "create" ]]; then
+		if [[ $PARAM_2 = "collection" ]]; then
+			if [[ -z "$PARAM_3" || -d "$AZKABAN_DIR" ]]; then
+				if [[ -z "$PARAM_3" ]]; then
+					echo "ERROR: There is a missing parameter after $PARAM_2."
+					echo "Please choose a name for your collection."
+					echo "e.g.: azkaban create collection daily_reporting"
+					exit 1
+				elif [[ -d "$AZKABAN_DIR" ]]; then
+					echo "ERROR: The $PARAM_3 directory already exists."
+					echo "Please choose another name for your collection."
+					exit 1
+				fi
+			else
+				create_collection_dir
+				create_collection_files
+				echo "Collection directory '$AZKABAN_DIR' created."
+			fi
+		elif [[ $PARAM_2 = "flow" ]]; then
+			if [[ -z "$PARAM_3" || -d "$AZKABAN_DIR" ]]; then
+				if [[ -z "$PARAM_3" ]]; then
+					echo "ERROR: There is a missing parameter after $PARAM_2."
+					echo "Please choose a name for your workflow directory."
+					echo "e.g.: azkaban create flow user_reporting"
+					exit 1
+				elif [[ -d "$AZKABAN_DIR" ]]; then
+					echo "ERROR: The $PARAM_3 directory already exists."
+					echo "Please choose another name for your workflow directory."
+					exit 1
+				fi
+			else
+				create_flow_dir
+				create_flow_files
+			fi
+		else
+			echo "ERROR: $PARAM_2 is not a known command."
+			echo "The following commands are used after the $PARAM_1 parameter:
+				1) collection
+				2) flow
+			"
+			echo "e.g.: azkaban create collection <collection_name>"
+			echo "e.g.: azkaban create flow <flow_name>"
+			exit 1
+		fi
+	elif [[ $PARAM_1 = "upload" ]]; then
+		if [[ $PARAM_2 = "collection" ]]; then
+			# zip up folder
+			upload_file
+			# upload folder to Azkaban
+		else
+			echo "ERROR: $PARAM_2 is not a known command."
+			echo "The following command is used after the $PARAM_1 parameter:
+				1) collection
+			"
+			exit 1
+		fi
+	elif [[ $PARAM_1 = "execute" ]]; then
+		if [[ $PARAM_2 = "collection" ]]; then
+			upload_file
+			execute_uploaded_file
+		else
+			echo "ERROR: $PARAM_2 is not a known command."
+			echo "The following command is used after the $PARAM_1 parameter:
+				1) collection
+			"
+			exit 1
+		fi
+	else
+		echo "ERROR: $PARAM_1 is not a known command."
+		echo "The following parameters are used:
+			1) create
+			2) upload
+			3) execute
+		"
+		echo "To create a collection or workflow directory, you would enter the following commands respectively:
+			3) azkaban create collection <collection_name>
+			4) azkaban create flow <flow_name>
+		      where <collection_name> and <flow_name> are the names you choose for the directory you want created.
+
+		      To upload a zipped directory to azkaban, you would enter the following command:
+			5) azkaban upload collection <collection_name>
+		      where <collection_name> is the name of the directory you want to upload.
+		"
+		exit 1
+	fi
+
+	return
+}
+
+# MAIN FUNCTION
+main
