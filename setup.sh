@@ -8,7 +8,7 @@
 
 # GLOBAL PARAMETERS
 CURRENT_DIR=$(pwd)
-HOME=echo $HOME
+HOME=$HOME
 
 # FUNCTIONS
 # Adds the ~/bin directory to the $PATH

@@ -154,15 +154,15 @@ create_collection_files() {
 		################################################################
 
 		# Date parameters
-		today=\$(date -u +"%F")
-		finish_ts=\$(date +%s --date="\$(date -u +"%F")")
-		start_ts=\$(date +%s --date="\$(date -u +"%F" --date "1 day ago")")
+		# today=\$(date -u +"%F")
+		# finish_ts=\$(date +%s --date="\$(date -u +"%F")")
+		# start_ts=\$(date +%s --date="\$(date -u +"%F" --date "1 day ago")")
 
 		# Writing date parameters to temporary properties file.
 		# Passing properties in this way is only good for passing between two connected jobs
 		# and not for jobs further down the dependency chain.
 		# For example, if A -> B -> C, properties in C will only work in jobs in B.
-		echo '{ "date_part": "'\$today'", "start_ts": "'\$start_ts'", "finish_ts": "'\$finish_ts'"}' > JOB_OUTPUT_PROP_FILE
+		# echo '{ "date_part": "'\$today'", "start_ts": "'\$start_ts'", "finish_ts": "'\$finish_ts'"}' > JOB_OUTPUT_PROP_FILE
 		_EOF_
 	
 	# final_job directory.
@@ -195,7 +195,11 @@ create_flow_files() {
 	local hive
 	local sqoop
 	local qa
+	local parent
+	local child
 
+	parent=$1
+	child=$2
 	db_table=$PARAM_3
 	hive=$PARAM_3"_hive"
 	sqoop=$PARAM_3"_sqoop"
@@ -210,7 +214,7 @@ create_flow_files() {
 	# hive.job
 	cat > $hive.job <<- _EOF_
 	type=command
-	dependencies=controller
+	dependencies=$parent
 	command=sh ../job.sh
 	command.1=hive -e ' '
 	_EOF_
@@ -373,6 +377,9 @@ execute_uploaded_file() {
 
 # The main function.
 main() {
+	local parent
+	local child
+
 	if [[ $PARAM_1 = "create" ]]; then
 		if [[ $PARAM_2 = "collection" ]]; then
 			if [[ -z "$PARAM_3" || -d "$AZKABAN_DIR" ]]; then
@@ -404,8 +411,10 @@ main() {
 					exit 1
 				fi
 			else
+				read -p "Enter the name of the job (excluding .job) this flow is dependant on [controller]: " parent
+				read -p "Enter the name of the job (excluding .job) that is dependent on this flow [final_job]: " child
 				create_flow_dir
-				create_flow_files
+				create_flow_files $parent $child
 			fi
 		else
 			echo "ERROR: $PARAM_2 is not a known command."
