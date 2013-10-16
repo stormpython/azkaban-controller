@@ -108,15 +108,17 @@ create_collection_dir() {
 
 # Creates the collection files.
 create_collection_files() {
+	local email
 	local final_job
-	final_job="final_"$PARAM_3"_job"
+
+	final_job="final_$PARAM_3"
+	read -p "Enter email address(es) for failure emails > " email
 
 	cd $AZKABAN_DIR
 
-	# Creates the controller.properties, controller.job, and job.sh
+	# Creates the controller.properties, controller.job, final_job, params.sh, and schema 
 	# files within the collection diretory.
-	touch controller.properties controller.job job.sh
-	mkdir $final_job
+	# touch controller.properties controller.job $final_job.job hql_schemas.hql sql_schemas.sql params.sh
 
 	# controller.properties
 	cat > controller.properties <<- _EOF_
@@ -126,17 +128,19 @@ create_collection_files() {
 		hdfs_db_loc=/user/hive/warehouse/reporting_nyc.db/
 		mysql_user=angel
 		mysql_pswd=@ng3L_1
-		email=
+		mysql_qa_table=qa_etl_hdfs
+		email=$email
 		_EOF_
 
 	# controller.job
 	cat > controller.job <<- _EOF_
 		type=command
-		command=sh job.sh
+		command=sh params.sh
+		command.1=echo "Starting collection run..."
 		_EOF_
 
 	# job.sh
-	cat > job.sh <<- _EOF_
+	cat > params.sh <<- _EOF_
 		#!/bin/bash
 
 		###############################################################
@@ -164,19 +168,29 @@ create_collection_files() {
 		# For example, if A -> B -> C, properties in C will only work in jobs in B.
 		# echo '{ "date_part": "'\$today'", "start_ts": "'\$start_ts'", "finish_ts": "'\$finish_ts'"}' > JOB_OUTPUT_PROP_FILE
 		_EOF_
+
+	# hql schemas
+	cat > hql_schemas.hql <<- _EOF_
+       		# Place the schemas for your HDFS tables here.
+		_EOF_	
+
+	# sql schemas
+	cat > sql_schemas.sql <<- _EOF_
+		# Place the schemas for your MySQL tables here.
+		_EOF_
 	
-	# final_job directory.
 	# final_job.job
-	cat > $final_job/$final_job.job <<- _EOF_
+	cat > $final_job.job <<- _EOF_
 		type=command
 		dependencies=
-		command=
+		failure.emails=\${email}
+		command=echo "Collection run complete."
 		_EOF_
-
-	cat > $final_job/$final_job.properties <<- _EOF_
-		mysql_qa_table=qa_etl_hdfs
-		failure.emails=
-		_EOF_
+	
+	#cat > $final_job/$final_job.properties <<- _EOF_
+	#	mysql_qa_table=qa_etl_hdfs
+	#	failure.emails=
+	#	_EOF_
 
 	return
 }
@@ -198,8 +212,11 @@ create_flow_files() {
 	local parent
 	local child
 
-	parent=$1
-	child=$2
+	read -p "Enter the name of the parent job [controller] > " parent
+	read -p "Enter the name of the final job [final_job]: " child
+
+	parent=$parent
+	child=$child
 	db_table=$PARAM_3
 	hive=$PARAM_3"_hive"
 	sqoop=$PARAM_3"_sqoop"
@@ -209,13 +226,19 @@ create_flow_files() {
 
 	# Creates the controller.properties, controller.job, and job.sh
 	# files within the collection diretory.
-	touch $hive.job $sqoop.job $qa.job $db_table.properties
+	# touch $hive.job $sqoop.job $qa.job $db_table.properties
+
+	# Local properties file.
+	cat > $db_table.properties <<- _EOF_
+	mysql_dest_table=$db_table
+	hdfs_table=$db_table
+	_EOF_
 
 	# hive.job
 	cat > $hive.job <<- _EOF_
 	type=command
 	dependencies=$parent
-	command=sh ../job.sh
+	command=sh ../params.sh
 	command.1=hive -e ' '
 	_EOF_
 
@@ -223,7 +246,7 @@ create_flow_files() {
 	cat > $sqoop.job <<- _EOF_
 	type=command
 	dependencies=$hive
-	command=sh ../job.sh
+	command=sh ../params.sh
 	command.1=sqoop export --connect jdbc:mysql://\${mysql_server}/\${mysql_db} --username \${mysql_user} --password \${mysql_pswd} --export-dir \${hdfs_db_loc} \${hdfs_table}/date_part=\${date_part} --table \${mysql_dest_table} --input-fields-terminated-by '\t' --input-null-string "\\\\\\\\\\N"
 	_EOF_
 
@@ -231,16 +254,7 @@ create_flow_files() {
 	cat > $qa.job <<- _EOF_
 	type=command
 	dependencies=$sqoop
-	failure.email=\${email}
 	command=
-	_EOF_
-
-	# Local properties file.
-	cat > $db_table.properties <<- _EOF_
-	mysql_qa_table=qa_etl_hdfs
-	mysql_dest_table=$db_table
-	hdfs_table=$db_table
-	email=
 	_EOF_
 
 	echo "Workflow directory '$AZKABAN_DIR' created."
@@ -411,10 +425,8 @@ main() {
 					exit 1
 				fi
 			else
-				read -p "Enter the name of the job (excluding .job) this flow is dependant on [controller]: " parent
-				read -p "Enter the name of the job (excluding .job) that is dependent on this flow [final_job]: " child
 				create_flow_dir
-				create_flow_files $parent $child
+				create_flow_files 
 			fi
 		else
 			echo "ERROR: $PARAM_2 is not a known command."
