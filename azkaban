@@ -91,36 +91,38 @@
 ########################################################################
 
 # GLOBAL PARAMETERS.
-PARAM_1=$1 # should be "create".
-PARAM_2=$2 # should be either "collection" or "flow".
-PARAM_3=$3 # should consist of a name for a directory.
+PARAM_1=$1 
+PARAM_2=$2 
+PARAM_3=$3 
 CURRENT_PATH=$(pwd)
 AZKABAN_DIR=$CURRENT_PATH/$PARAM_3
 AZKABAN_SERVER="https://hdfs01.alpha.nyc1.beats:8444"
 
 # FUNCTIONS.
-# Create the collection directory.
+# Creates the collection directory.
 create_collection_dir() {
 	mkdir $AZKABAN_DIR
 
 	return
 }
 
-# Creates the collection files.
+# Creates the files that go into the collection directory.
 create_collection_files() {
 	local email
 	local final_job
 
+	# The final job in the collection directory.
 	final_job="final_$PARAM_3"
+
+	# The email address where failure notices are sent.
 	read -p "Enter email address(es) for failure emails > " email
 
 	cd $AZKABAN_DIR
+	# Creates the hql and sql schema files where schemas are placed.
+	touch hql_schemas.hql sql_schemas.sql
 
 	# Creates the controller.properties, controller.job, final_job, params.sh, and schema 
 	# files within the collection diretory.
-	# touch controller.properties controller.job $final_job.job params.sh
-	touch hql_schemas.hql sql_schemas.sql
-
 	# controller.properties
 	cat > controller.properties <<- _EOF_
 		mysqldb=reporting
@@ -159,15 +161,15 @@ create_collection_files() {
 		################################################################
 
 		# Date parameters
-		# today=\$(date -u +"%F")
-		# finish_ts=\$(date +%s --date="\$(date -u +"%F")")
-		# start_ts=\$(date +%s --date="\$(date -u +"%F" --date "1 day ago")")
+		today=\$(date -u +"%F")
+		finish_ts=\$(date +%s --date="\$(date -u +"%F")")
+		start_ts=\$(date +%s --date="\$(date -u +"%F" --date "1 day ago")")
 
 		# Writing date parameters to temporary properties file.
 		# Passing properties in this way is only good for passing between two connected jobs
 		# and not for jobs further down the dependency chain.
 		# For example, if A -> B -> C, properties in C will only work in jobs in B.
-		# echo '{ "date_part": "'\$today'", "start_ts": "'\$start_ts'", "finish_ts": "'\$finish_ts'"}' > JOB_OUTPUT_PROP_FILE
+		echo '{ "date_part": "'\$today'", "start_ts": "'\$start_ts'", "finish_ts": "'\$finish_ts'"}' > JOB_OUTPUT_PROP_FILE
 		_EOF_
 
 	# final_job.job
@@ -178,6 +180,8 @@ create_collection_files() {
 		command=echo "Collection run complete."
 		_EOF_
 	
+	# Not sure if a final_job.properties file is needed.
+	# Myabe able to add the parameters to the final_job.job file.
 	# cat > $final_job/$final_job.properties <<- _EOF_
 	#	mysql_qa_table=qa_etl_hdfs
 	#	failure.emails=
@@ -193,28 +197,35 @@ create_flow_dir() {
 	return
 }
 
-# Creates the flow files.
+# Creates the files that go into the flow directory.
 create_flow_files() {
 	# Local paramters.
 	local db_table
-	local hive
-	local sqoop
-	local qa
+	local hive_job
+	local sqoop_job
+	local qa_job
 	local parent
 	local child
 
 	read -p "Enter the name of the parent job [controller] > " parent
-	read -p "Enter the name of the final job [final_job]: " child
+	read -p "Enter the name of the final job [final_job] > " child
 
+	# Name of the parent job and final job.
+	# Used to set the dependencies.
 	parent=$parent
 	child=$child
+
+	# Name for the database table.
+	# The convention is that the database table has the same name
+	# as the flow directory.
 	db_table=$PARAM_3
-	hive=$PARAM_3"_hive"
-	sqoop=$PARAM_3"_sqoop"
-	qa=$PARAM_3"_qa"
+
+	# Name for the jobs in the flow directory.
+	hive_job=$PARAM_3"_hive"
+	sqoop_job=$PARAM_3"_sqoop"
+	qa_job=$PARAM_3"_qa"
 
 	cd $AZKABAN_DIR
-
 	# Creates the controller.properties, controller.job, and job.sh
 	# files within the collection diretory.
 	# touch $hive.job $sqoop.job $qa.job $db_table.properties
@@ -248,9 +259,13 @@ create_flow_files() {
 	command=
 	_EOF_
 
-	# Adding new flow dependencies to the final job file.
+	# Adds new flow dependencies to the final job file.
+	# Assumes that the final job is one directory up.
+	# This assumption is not good and needs to be changed.
 	sed -i.bak '2s/$/'$qa.job',/' ../$child.job
 
+	# Completion echo statements.
+	echo ""
 	echo "Workflow directory '$AZKABAN_DIR' created."
 	echo ""
 	echo "***** DO NOT FORGET TO ADD $qa.job TO THE final_<collection>_job.job DEPENDENCIES. *****"
@@ -259,12 +274,20 @@ create_flow_files() {
 	return
 }
 
+# Removes the zip file if it already exists.
+remove_zip_file() {
+	echo "Removing $PARAM_3.zip..."
+	rm $CURRENT_PATH/$PARAM_3.zip
+	echo "Zipped file $PARAM_3.zip removed."
+	
+	return
+}
+
 # Zips directory. 
 zip_file() {
 	if [[ -d "$CURRENT_PATH/$PARAM_3" ]]; then
 		if [[ -e "$CURRENT_PATH/$PARAM_3.zip" ]]; then
-			echo "Overwriting $CURRENT_PATH/$PARAM_3.zip file."
-			rm $CURRENT_PATH/$PARAM_3.zip
+			remove_zip_file
 		fi
 
 		echo "Zipping $CURRENT_PATH/$PARAM_3 directory."
@@ -276,11 +299,6 @@ zip_file() {
 	return
 }
 
-remove_zip_file() {
-	rm $PARAM_3.zip
-	echo "Zipped file $PARAM_3.zip removed."
-}
-
 # Returns the Azkaban session.id.
 get_session_id () {
 	# Instantiating local parameters.
@@ -290,6 +308,7 @@ get_session_id () {
 
 	# Curl call to Azkaban that returns a session_id in json.
 	response=$(curl -k --data "action=login&username=azkaban&password=azkaban" $AZKABAN_SERVER)
+
 	# Returns the status in the json output status field.
 	status=$(echo $response | awk '{print $4}' | tr -d '",')
 
@@ -424,9 +443,10 @@ main() {
 			fi
 		else
 			echo "ERROR: $PARAM_2 is not a known command."
-			echo "The following commands are used after the $PARAM_1 parameter:
-				1) collection
-				2) flow
+			echo "
+			The following commands are used after the $PARAM_1 parameter:
+			1) collection
+			2) flow
 			"
 			echo "e.g.: azkaban create collection <collection_name>"
 			echo "e.g.: azkaban create flow <flow_name>"
@@ -434,13 +454,13 @@ main() {
 		fi
 	elif [[ $PARAM_1 = "upload" ]]; then
 		if [[ $PARAM_2 = "collection" ]]; then
-			# zip up folder
+			# uploads folder to Azkaban
 			upload_file
-			# upload folder to Azkaban
 		else
 			echo "ERROR: $PARAM_2 is not a known command."
-			echo "The following command is used after the $PARAM_1 parameter:
-				1) collection
+			echo "
+			The following command is used after the $PARAM_1 parameter:
+			1) collection
 			"
 			exit 1
 		fi
@@ -450,26 +470,29 @@ main() {
 			execute_uploaded_file
 		else
 			echo "ERROR: $PARAM_2 is not a known command."
-			echo "The following command is used after the $PARAM_1 parameter:
-				1) collection
+			echo "
+			The following command is used after the $PARAM_1 parameter:
+			1) collection
 			"
 			exit 1
 		fi
 	else
 		echo "ERROR: $PARAM_1 is not a known command."
-		echo "The following parameters are used:
-			1) create
-			2) upload
-			3) execute
+		echo "
+		The following parameters are used:
+		1) create
+		2) upload
+		3) execute
 		"
-		echo "To create a collection or workflow directory, you would enter the following commands respectively:
-			3) azkaban create collection <collection_name>
-			4) azkaban create flow <flow_name>
-		      where <collection_name> and <flow_name> are the names you choose for the directory you want created.
+		echo "
+		To create a collection or workflow directory, you would enter the following commands respectively:
+		3) azkaban create collection <collection_name>
+		4) azkaban create flow <flow_name>
+		where <collection_name> and <flow_name> are the names you choose for the directory you want created.
 
-		      To upload a zipped directory to azkaban, you would enter the following command:
-			5) azkaban upload collection <collection_name>
-		      where <collection_name> is the name of the directory you want to upload.
+		To upload a zipped directory to azkaban, you would enter the following command:
+		5) azkaban upload collection <collection_name>
+		where <collection_name> is the name of the directory you want to upload.
 		"
 		exit 1
 	fi
