@@ -118,7 +118,8 @@ create_collection_files() {
 
 	# Creates the controller.properties, controller.job, final_job, params.sh, and schema 
 	# files within the collection diretory.
-	# touch controller.properties controller.job $final_job.job hql_schemas.hql sql_schemas.sql params.sh
+	# touch controller.properties controller.job $final_job.job params.sh
+	touch hql_schemas.hql sql_schemas.sql
 
 	# controller.properties
 	cat > controller.properties <<- _EOF_
@@ -169,16 +170,6 @@ create_collection_files() {
 		# echo '{ "date_part": "'\$today'", "start_ts": "'\$start_ts'", "finish_ts": "'\$finish_ts'"}' > JOB_OUTPUT_PROP_FILE
 		_EOF_
 
-	# hql schemas
-	cat > hql_schemas.hql <<- _EOF_
-       		# Place the schemas for your HDFS tables here.
-		_EOF_	
-
-	# sql schemas
-	cat > sql_schemas.sql <<- _EOF_
-		# Place the schemas for your MySQL tables here.
-		_EOF_
-	
 	# final_job.job
 	cat > $final_job.job <<- _EOF_
 		type=command
@@ -187,7 +178,7 @@ create_collection_files() {
 		command=echo "Collection run complete."
 		_EOF_
 	
-	#cat > $final_job/$final_job.properties <<- _EOF_
+	# cat > $final_job/$final_job.properties <<- _EOF_
 	#	mysql_qa_table=qa_etl_hdfs
 	#	failure.emails=
 	#	_EOF_
@@ -256,6 +247,9 @@ create_flow_files() {
 	dependencies=$sqoop
 	command=
 	_EOF_
+
+	# Adding new flow dependencies to the final job file.
+	sed -i.bak '2s/$/'$qa.job',/' ../$child.job
 
 	echo "Workflow directory '$AZKABAN_DIR' created."
 	echo ""
