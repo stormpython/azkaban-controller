@@ -321,7 +321,7 @@ zip_file() {
 		echo "Zipping $CURRENT_PATH/$PARAM_3 directory."
 		zip -qr $CURRENT_PATH/$PARAM_3.zip $CURRENT_PATH/$PARAM_3
 	else
-		echo "ERROR: The $CURRENT_PATH/$PARAM_3 directory does not exist."
+		echo $'\e[31mERROR: The $CURRENT_PATH/$PARAM_3 directory does not exist.'
 	fi
 
 	return
@@ -508,7 +508,8 @@ main() {
 			exit 1
 		fi
 	else
-		echo "ERROR: $PARAM_1 is not a known command."
+		echo $'\e[31m''****** ERROR: '$PARAM_1' is not a known command. ******' $'\e[0m' 
+		echo ""
 		echo "The following parameters are used:
 		1) create
 		2) upload
