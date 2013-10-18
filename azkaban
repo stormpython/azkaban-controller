@@ -341,8 +341,9 @@ get_session_id () {
 	status=$(echo $response | awk '{print $4}' | tr -d '",')
 
 	if [[ $status != "success" ]]; then
-		echo "ERROR: Cannot return session_id"
-		echo "$response"
+		echo ""
+		echo $'\e[31m''****** ERROR: Cannot return session_id ******'$'\e[0m'
+		echo $response
 		exit 1
 	fi
 
@@ -371,21 +372,27 @@ upload_file() {
 		# Retreives the session_id
 		echo "Retreiving session.id...."
 		session_id=$(get_session_id)
-		echo "session.id: $session_id"
 
 		# Uploads collection folder to Azkaban.
-		echo "Uploading file to Azkaban...."
-		response=$(curl -s -k -i -H "Content-Type: multipart/mixed" -X POST --form 'session.id='$session_id'' --form 'ajax=upload' --form 'file=@'$PARAM_3'.zip;type=application/zip' --form 'project='$project'' ''$AZKABAN_SERVER'/manager')
-
-		if [[ $response == *error* ]]; then
-			echo "ERROR: Cannont upload file to Azkaban."
-			echo $response
-			remove_zip_file
+		if [[ $session_id == *ERROR* ]]; then
+			echo $session_id
+			echo "Upload failed."
 			exit 1
 		else
-			echo "Upload to Azkaban project $project successful!"
-			echo $response
-			remove_zip_file
+			echo "session.id: $session_id"
+			echo "Uploading file to Azkaban...."
+			response=$(curl -s -k -i -H "Content-Type: multipart/mixed" -X POST --form 'session.id='$session_id'' --form 'ajax=upload' --form 'file=@'$PARAM_3'.zip;type=application/zip' --form 'project='$project'' ''$AZKABAN_SERVER'/manager')
+
+			if [[ $response == *error* ]]; then
+				echo "ERROR: Cannont upload file to Azkaban."
+				echo $response
+				remove_zip_file
+				exit 1
+			else
+				echo "Upload to Azkaban project $project successful!"
+				echo $response
+				remove_zip_file
+			fi
 		fi
 	else
 		echo "The $PARAM_3 directory could not be found."
@@ -442,30 +449,38 @@ main() {
 		if [[ $PARAM_2 = "collection" ]]; then
 			if [[ -z "$PARAM_3" || -d "$AZKABAN_DIR" ]]; then
 				if [[ -z "$PARAM_3" ]]; then
-					echo "ERROR: There is a missing parameter after $PARAM_2."
-					echo "Please choose a name for your collection."
-					echo "e.g.: azkaban create collection daily_reporting"
+					echo ""
+					echo $'\e[31m''****** ERROR: There is a missing parameter after '$PARAM_2'. ******'
+					echo 'Please choose a name for your collection.'$'\e[0m'
+					echo ""
 					exit 1
 				elif [[ -d "$AZKABAN_DIR" ]]; then
-					echo "ERROR: The $PARAM_3 directory already exists."
-					echo "Please choose another name for your collection."
+					echo ""
+					echo $'\e[31m''****** ERROR: The '$PARAM_3' directory already exists. ******'
+					echo 'Please choose another name for your collection.'$'\e[0m'
+					echo ""
 					exit 1
 				fi
 			else
 				create_collection_dir
 				create_collection_files
+				echo ""
 				echo "Collection directory '$AZKABAN_DIR' created."
+				echo ""
 			fi
 		elif [[ $PARAM_2 = "flow" ]]; then
 			if [[ -z "$PARAM_3" || -d "$AZKABAN_DIR" ]]; then
 				if [[ -z "$PARAM_3" ]]; then
-					echo "ERROR: There is a missing parameter after $PARAM_2."
-					echo "Please choose a name for your workflow directory."
-					echo "e.g.: azkaban create flow user_reporting"
+					echo ""
+					echo $'\e[31m''****** ERROR: There is a missing parameter after '$PARAM_2'. ******'
+					echo 'Please choose a name for your workflow directory.'$'\e[0m'
+					echo ""
 					exit 1
 				elif [[ -d "$AZKABAN_DIR" ]]; then
-					echo "ERROR: The $PARAM_3 directory already exists."
-					echo "Please choose another name for your workflow directory."
+					echo ""
+					echo $'\e[31m''****** ERROR: The '$PARAM_3' directory already exists. ******'
+					echo 'Please choose another name for your workflow directory.'$'\e[0m'
+					echo ""
 					exit 1
 				fi
 			else
@@ -473,14 +488,13 @@ main() {
 				create_flow_files 
 			fi
 		else
-			echo "ERROR: $PARAM_2 is not a known command."
-			echo "
-			The following commands are used after the $PARAM_1 parameter:
+			echo ""
+			echo $'\e[31m''****** ERROR: '$PARAM_2' is not a known command. ******'$'\e[0m'
+			echo $'\e[36m''The following commands are used after the '$PARAM_1' parameter:
 			1) collection
 			2) flow
-			"
-			echo "e.g.: azkaban create collection <collection_name>"
-			echo "e.g.: azkaban create flow <flow_name>"
+			'$'\e[0m'
+			echo ""
 			exit 1
 		fi
 	elif [[ $PARAM_1 = "upload" ]]; then
@@ -488,11 +502,12 @@ main() {
 			# uploads folder to Azkaban
 			upload_file
 		else
-			echo "ERROR: $PARAM_2 is not a known command."
-			echo "
-			The following command is used after the $PARAM_1 parameter:
+			echo ""
+			echo $'\e[31m''****** ERROR: '$PARAM_2' is not a known command. ******'$'\e[0m'
+			echo $'\e[36m''The following command is used after the '$PARAM_1' parameter:
 			1) collection
-			"
+			'$'\e[0m'
+			echo ""
 			exit 1
 		fi
 	elif [[ $PARAM_1 = "execute" ]]; then
@@ -500,31 +515,23 @@ main() {
 			upload_file
 			execute_uploaded_file
 		else
-			echo "ERROR: $PARAM_2 is not a known command."
-			echo "
-			The following command is used after the $PARAM_1 parameter:
+			echo ""
+			echo $'\e[31m''****** ERROR: '$PARAM_2' is not a known command. ******'$'\e[0m'
+			echo $'\e[36m''The following command is used after the '$PARAM_1' parameter:
 			1) collection
-			"
+			'$'\e[0m'
+			echo ""
 			exit 1
 		fi
 	else
-		echo $'\e[31m''****** ERROR: '$PARAM_1' is not a known command. ******' $'\e[0m' 
 		echo ""
-		echo "The following parameters are used:
+		echo $'\e[31m''****** ERROR: '$PARAM_1' is not a known command. ******' $'\e[0m' 
+		echo $'\e[36m''The following parameters are used:
 		1) create
 		2) upload
 		3) execute
-		"
-		echo "To create a collection or workflow directory, you would enter the following commands respectively:
-		3) azkaban create collection <collection_name>
-		4) azkaban create flow <flow_name>
-		"
-		echo "where <collection_name> and <flow_name> are the names you choose for the directory you want created."
+		'$'\e[0m'
 		echo ""
-		echo "To upload a zipped directory to azkaban, you would enter the following command:
-		5) azkaban upload collection <collection_name>
-		"
-		echo "where <collection_name> is the name of the directory you want to upload."
 
 		exit 1
 	fi
