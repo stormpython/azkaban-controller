@@ -96,6 +96,7 @@ PARAM_1=$1
 PARAM_2=$2 
 PARAM_3=$3 
 CURRENT_PATH=$(pwd)
+CURRENT_DIR=${PWD##*/}
 AZKABAN_DIR=$CURRENT_PATH/$PARAM_3
 AZKABAN_SERVER="https://hdfs01.alpha.nyc1.beats:8444"
 ###############################################################################
@@ -127,17 +128,17 @@ create_collection_files() {
 
 	# Prompts users for the email address(es) where job failure notices 
 	# are sent.
-	read -p "Enter email address(es) for failure emails > " email
-	cd $AZKABAN_DIR
+	read -p "Enter email address for failure emails > " email
+	
 	#######################################################################
 
 	# Collection directory files.
 	#######################################################################
 	# HQL and SQL schemas. These files are currently empty.
-	touch hql_schemas.hql sql_schemas.sql
+	touch $AZKABAN_DIR/hql_schemas.hql $AZKABAN_DIR/sql_schemas.sql
 
 	# controller.properties => global properties file
-	cat > controller.properties <<- _EOF_
+	cat > $AZKABAN_DIR/controller.properties <<- _EOF_
 		mysqldb=reporting
 		mysql_server=crystaldb01.dev.nyc1.beats:3306
 		hdfs_db=reporting_nyc
@@ -150,14 +151,14 @@ create_collection_files() {
 
 	# controller.job => parent (first job) that starts a collection 
 	# run in Azkaban.
-	cat > controller.job <<- _EOF_
+	cat > $AZKABAN_DIR/controller.job <<- _EOF_
 		type=command
 		command=sh params.sh
 		command.1=echo "Starting collection run..."
 		_EOF_
 
 	# params.sh
-	cat > params.sh <<- _EOF_
+	cat > $AZKABAN_DIR/params.sh <<- _EOF_
 		#!/bin/bash
 
 		###############################################################
@@ -194,7 +195,7 @@ create_collection_files() {
 		_EOF_
 
 	# final_<collection_directory>.job
-	cat > $final_job.job <<- _EOF_
+	cat > $AZKABAN_DIR/$final_job.job <<- _EOF_
 		type=command
 		dependencies=
 		failure.emails=\${email}
@@ -225,21 +226,22 @@ create_flow_files() {
 	# Local variables.
 	#######################################################################	
 	local db_table
-	local hive_job
-	local sqoop_job
-	local qa_job
+	local hive
+	local sqoop
+	local qa
 	local parent
 	local child
 
 	# Prompts user for parent(first) and child(final) jobs, which are
 	# typically located in the collection directory unless flows are nested
 	# within flows..
-	read -p "Enter the name of the parent job > " parent
-	read -p "Enter the name of the final job > " child
+	read -p "Enter the name of the parent job [controller] > " parent
+	read -p "Enter the name of the final job [final_$CURRENT_DIR] > " child
 
-	# Name of the parent job and final job used to set dependencies.
-	parent=$parent
-	child=$child
+	# Sets the default values as controller and final_<collection_dir> 
+	# if no values were set.
+	parent=${parent:="controller"}
+	child=${child:="final_$CURRENT_DIR"}
 
 	# Name for the database table.
 	# The convention is that the database table has the same name
@@ -247,23 +249,21 @@ create_flow_files() {
 	db_table=$PARAM_3
 
 	# Naming convention for the jobs in the flow directory.
-	hive_job=$PARAM_3"_hive"
-	sqoop_job=$PARAM_3"_sqoop"
-	qa_job=$PARAM_3"_qa"
+	hive=$PARAM_3"_hive"
+	sqoop=$PARAM_3"_sqoop"
+	qa=$PARAM_3"_qa"
 	#######################################################################	
-
-	cd $AZKABAN_DIR
-
+	 
 	# Creates the files in the flow directory.
 	#######################################################################	
 	# Local properties file.
-	cat > $db_table.properties <<- _EOF_
+	cat > $AZKABAN_DIR/$db_table.properties <<- _EOF_
 	mysql_dest_table=$db_table
 	hdfs_table=$db_table
 	_EOF_
 
 	# hive.job
-	cat > $hive.job <<- _EOF_
+	cat > $AZKABAN_DIR/$hive.job <<- _EOF_
 	type=command
 	dependencies=$parent
 	command=sh ../params.sh
@@ -271,7 +271,7 @@ create_flow_files() {
 	_EOF_
 
 	# sqoop.job
-	cat > $sqoop.job <<- _EOF_
+	cat > $AZKABAN_DIR/$sqoop.job <<- _EOF_
 	type=command
 	dependencies=$hive
 	command=sh ../params.sh
@@ -279,7 +279,7 @@ create_flow_files() {
 	_EOF_
 
 	# qa.job
-	cat > $qa.job <<- _EOF_
+	cat > $AZKABAN_DIR/$qa.job <<- _EOF_
 	type=command
 	dependencies=$sqoop
 	command=
@@ -288,7 +288,7 @@ create_flow_files() {
 	# Adds new flow dependencies to the final job file.
 	# Assumes that the final job is one directory up.
 	# This assumption is not good and needs to be changed.
-	sed -i.bak '2s/$/'$qa.job',/' ../$child.job
+	sed -i '' '2s/$/&'$qa',/' $child.job
 	#######################################################################	
 
 	# Completion echo statements.
@@ -360,7 +360,8 @@ upload_file() {
 	local session_id
 
 	# Azkaban project folder. Should be the name of the collection folder.
-	project=$PARAM_3
+	read -p "What is the Azkaban project directory? [$PARAM_3] > " project
+	project=${project:=$PARAM_3}
 
 	# Check to make sure collection is in the current working directory.
 	if [[ -d $AZKABAN_DIR ]]; then
