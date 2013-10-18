@@ -294,8 +294,7 @@ create_flow_files() {
 	# Completion echo statements.
 	echo ""
 	echo "Workflow directory '$AZKABAN_DIR' created."
-	echo ""
-	echo "***** DO NOT FORGET TO ADD $qa.job TO THE final_<collection>_job.job DEPENDENCIES. *****"
+	echo $'\e[36m'''$qa' added to '$child'.job dependencies.'$'\e[0m'
 	echo ""
 
 	return
@@ -359,9 +358,7 @@ upload_file() {
 	local response
 	local session_id
 
-	# Azkaban project folder. Should be the name of the collection folder.
-	read -p "What is the Azkaban project directory? [$PARAM_3] > " project
-	project=${project:=$PARAM_3}
+	project=$1
 
 	# Check to make sure collection is in the current working directory.
 	if [[ -d $AZKABAN_DIR ]]; then
@@ -415,8 +412,8 @@ execute_uploaded_file() {
 	# need to ask where failure emails should go, should default to team-analytics@beatsmusic.com
 	# The final job in every flow
 	email="ssturgis@beatsmusic.com"
-	project=$PARAM_3
-	flow="final_"$PARAM_3"_job"
+	project=$1
+	flow="final_"$PARAM_3""
 	session_id=$(get_session_id)
 
 	# Check to see if the collection is in the current directory.
@@ -443,6 +440,7 @@ execute_uploaded_file() {
 # The main function.
 main() {
 	# Local variables.
+	local project
 	local parent
 	local child
 
@@ -500,8 +498,12 @@ main() {
 		fi
 	elif [[ $PARAM_1 = "upload" ]]; then
 		if [[ $PARAM_2 = "collection" ]]; then
+			# Azkaban project folder. Should be the name of the collection folder.
+			read -p "What is the Azkaban project name? [$PARAM_3] > " project
+			project=${project:=$PARAM_3}
+			
 			# uploads folder to Azkaban
-			upload_file
+			upload_file $project
 		else
 			echo ""
 			echo $'\e[31m''****** ERROR: '$PARAM_2' is not a known command. ******'$'\e[0m'
@@ -513,8 +515,12 @@ main() {
 		fi
 	elif [[ $PARAM_1 = "execute" ]]; then
 		if [[ $PARAM_2 = "collection" ]]; then
-			upload_file
-			execute_uploaded_file
+			# Azkaban project folder. Should be the name of the collection folder.
+			read -p "What is the Azkaban project name? [$PARAM_3] > " project
+			project=${project:=$PARAM_3}
+
+			upload_file $project
+			execute_uploaded_file $project
 		else
 			echo ""
 			echo $'\e[31m''****** ERROR: '$PARAM_2' is not a known command. ******'$'\e[0m'
